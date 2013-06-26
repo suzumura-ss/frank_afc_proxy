@@ -1,0 +1,7 @@
+//
+// Prefix header for all source files of the 'FrankAfcProxy' target in the 'FrankAfcProxy' project
+//
+
+#ifdef __OBJC__
+    #import <Foundation/Foundation.h>
+#endif

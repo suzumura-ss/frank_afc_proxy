@@ -1,0 +1,31 @@
+#!/usr/bin/env ruby
+
+require 'frank-cucumber/version'
+require 'fileutils'
+
+FRANKIFY_XCCONFIG = 'Frank/frankify.xcconfig'
+LIBPROXYFLAG = '-lFrankAfcProxy'
+
+
+puts "Patching Frank-Cucumber evniroments..."
+begin
+  config = []
+  File.open(FRANKIFY_XCCONFIG).each_line{|line|
+    line.strip!
+    if line=~%r{^FRANK_LDFLAGS} and !(line=~/#{LIBPROXYFLAG}/)
+      line += " #{LIBPROXYFLAG}"
+    end
+    config << line
+  }
+  File.open(FRANKIFY_XCCONFIG, "w"){|f|
+    f.write config.join("\n")
+  }
+rescue Errno::ENOENT => e
+  puts "... patch failed. #{e}"
+  puts "Please run the `frank setup` first."
+  exit 1
+end
+
+
+puts 'Installing `libFrankAfcProxy`...'
+FileUtils.cp( File.expand_path('../../frankAfcProxy-skeleton/libFrankAfcProxy.a', __FILE__), 'Frank/' )
