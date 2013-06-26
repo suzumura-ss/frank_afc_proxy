@@ -1,4 +1,4 @@
-# FrankProxy
+# FrankAfcProxy
 
 Connect to FrankServer with iPhone USB cable via afc.
 
@@ -25,11 +25,11 @@ Or install it yourself as:
 
 1. First, run frank setup In your application project directory.
 
-    $ frank setup
+        $ frank setup
 
 2. And install frankAfcProxy into your application.
 
-    $ frankAfcProxy-install
+        $ frankAfcProxy-install
 
 3. Build and launch your application with fruitstrap.
 
@@ -37,17 +37,17 @@ Or install it yourself as:
 
 4. Start frankAfcProxy with your application bundle identifer.
 
-    $ frankAfcProxy start --appid=<bundle identifer>
+        $ frankAfcProxy start --appid=<bundle identifer>
 
 5. Run frank console with --server option.
 
-    $ frank console --server=http://localhost:4000/
+        $ frank console --server=http://localhost:4000/
 
-Or, Run test with server_base_url settings.
+  Or, Run test with server_base_url settings.
 
-    Frank::Cucumber::FrankHelper.server_base_url = "http://localhost:4000/"
+        Frank::Cucumber::FrankHelper.server_base_url = "http://localhost:4000/"
 
-6. Access to device.
+6. Access to device with FrankHelper.
 
 
 
