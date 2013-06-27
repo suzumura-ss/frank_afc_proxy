@@ -1,0 +1,203 @@
+#!/usr/bin/env ruby
+
+require 'webrick'
+require 'io/afc'
+require 'json'
+require 'daemon_spawn'
+require 'thor'
+require 'pp'
+
+
+module FrankAfcProxy
+
+class Server < WEBrick::HTTPServlet::AbstractServlet
+  def pp_logger(obj)
+    print "\x1b[1m"
+    pp obj
+    print "\x1b[m"
+  end
+
+  def initialize(server, opt)
+    super(server, opt)
+    @opt = opt
+    @in_header  = '/Documents/in.header'
+    @in_body    = '/Documents/in.body'
+    @out_header = '/Documents/out.header'
+    @out_body   = '/Documents/out.body'
+    @@afc.truncate(@out_body, 0)
+    @@afc.truncate(@out_header, 0)
+    @@runloop = true
+  end
+
+  def parseopt(req)
+    opt = req.header
+    opt.delete("host")
+    opt.inject({}){|s, v| s[v[0]] = v[1][0]; s}
+  end
+
+  def request_to_frank(method, req, res)
+    uri = req.request_uri
+    uri.port=37265
+    uri.host="localhost"
+
+    opt = parseopt(req)
+    opt["URI"] = uri.to_s
+    opt["Method"] = method.to_s
+    pp_logger [method, opt["URI"]]
+
+    begin
+      @@afc.truncate(@out_body, 0)
+      @@afc.truncate(@out_header, 0)
+      @@afc.open(@in_body,   IO::WRONLY){|f| f.write(req.body)}
+      @@afc.open(@in_header, IO::WRONLY){|f| f.write(opt.to_json)}
+      pp_logger [:waiting_response, opt["URI"]]
+
+      retry_cont = 2
+      while @@runloop
+        s = @@afc.getattr(@out_header)[:st_size]
+        if s==0
+          sleep 0.01
+          next
+        end
+        res.body = body = @@afc.open(@out_body){|f| f.read(-1)}
+        pp_logger [method, opt["URI"], s, body.size]
+        if body.size==0 and retry_cont>0
+          retry_cont-=1
+          sleep 0.01
+          next
+        end
+
+        begin
+          header = JSON.parse(@@afc.open(@out_header){|f| f.read(-1)})
+          res["Content-Type"] = header["Content-Type"]
+          res.status = header["Status"]
+        rescue JSON::ParserError => e
+          pp_logger e
+          res.status = 500
+        end
+        break
+      end
+    rescue => e
+      pp_logger [method, opt["URI"], e, e.backtrace[0..5]]
+    ensure
+      @@afc.truncate(@out_header, 0)
+      @@afc.truncate(@out_body, 0)
+    end
+  end
+
+  def do_GET(req, res)
+    request_to_frank(:GET, req, res)
+  end
+
+  def do_POST(req, res)
+    request_to_frank(:POST, req, res)
+  end
+
+  def self.start(opt)
+    @@afc = opt[:afc]
+    @@server = WEBrick::HTTPServer.new({:Port => opt['port'], :BindAddress => '0.0.0.0', :MaxClients=>1})
+    @@server.mount('/', self, opt)
+
+    trap('INT') {
+      @@server.stop
+    }
+    @@server.start
+  end
+
+  def self.stop
+    @@runloop = false
+    @@server.shutdown
+    @@afc.close
+  end
+end
+
+
+class Daemon < DaemonSpawn::Base
+  def self.exec(command, options)
+    @@opt = options.to_hash
+    @@opt[:afc] = IO::AFC.connect(options) if %w{start restart}.include?(command)
+    body = File.expand_path(File.join(options[:log], "#{File.basename(__FILE__, ".rb")}_#{options[:port]}"))
+    opt = {
+        :working_dir => '/',
+        :pid_file => body + '.pid',
+        :log_file => body + '.log',
+        :sync_log => true,
+        :singleton => false,
+    }
+    ARGV.clear
+    ARGV << command
+    if options[:debug]
+      Server.start(@@opt)
+    else
+      self.spawn!(opt)
+    end
+  end
+
+  def start(args)
+    Server.start(@@opt)
+  end
+
+  def stop
+    Server.stop
+  end
+end
+
+
+class Cli < Thor
+
+  desc "start [option]", "Start frankAfcProxy."
+  option :appid, :type=>:string,  :desc=>"Bundle identifer of your application.", :aliases=>'-a', :required=>true
+  option :udid,  :type=>:string,  :desc=>"UDID of the device you want to connect. Default is 'auto detect'.", :default=>nil
+  option :port,  :type=>:numeric, :desc=>"Listen port.", :default=>4000, :aliases=>'-p'
+  option :log,   :type=>:string,  :desc=>"Log/pid files directory.", :default=>"/var/log", :aliases=>'-l'
+  option :debug, :type=>:boolean, :desc=>"Debug mode.", :aliases=>'-d'
+  def start
+    Daemon.exec('start', options)
+  end
+
+  desc "stop [option]", "Stop frankAfcProxy."
+  option :port,  :type=>:numeric, :desc=>"Listen port.", :default=>4000, :aliases=>'-p'
+  option :log,   :type=>:string,  :desc=>"Log/pid files directory.", :default=>"/var/log", :aliases=>'-l'
+  def stop
+    Daemon.exec('stop', options)
+  end
+
+  desc "restart [option]", "Restart frankAfcProxy."
+  option :appid, :type=>:string,  :desc=>"Bundle identifer of your application.", :aliases=>'-a', :required=>true
+  option :udid,  :type=>:string,  :desc=>"UDID of the device you want to connect. Default is 'auto detect'.", :default=>nil
+  option :port,  :type=>:numeric, :desc=>"Listen port.", :default=>4000, :aliases=>'-p'
+  option :log,   :type=>:string,  :desc=>"Log/pid files directory.", :default=>"/var/log", :aliases=>'-l'
+  def restart
+    Daemon.exec('restart', options)
+  end
+
+  desc "status [option]", "Show frankAfcProxy status."
+  option :port,  :type=>:numeric, :desc=>"Listen port.", :default=>4000, :aliases=>'-p'
+  option :log,   :type=>:string,  :desc=>"Log/pid files directory.", :default=>"/var/log", :aliases=>'-l'
+  def status
+    Daemon.exec('status', options)
+  end
+
+  desc "list [option]", "List installed applications."
+  option :udid, :type=>:string, :desc=>"UDID of the device you want to connect. Default is 'auto detect'.", :default=>nil
+  def list
+    begin
+      afc = IO::AFC.connect(:udid=>options[:udid])
+    rescue IO::AFC::NoDevice, IO::AFC::PasswordProtected, IO::AFC::ConnectFailed, StandardError => e
+      $stderr.puts e
+      return 1
+    end
+    puts "udid : #{afc.device_udid}"
+    apps = afc.applications
+    apps.each{|k, v|
+      puts "#{k} : #{v['CFBundleDisplayName']}"
+    }
+    puts "#{apps.size} application(s) is installed."
+    return 0
+  end
+end
+
+end
+
+
+FrankAfcProxy::Cli.start(ARGV)
