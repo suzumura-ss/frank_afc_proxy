@@ -39,6 +39,10 @@ Or install it yourself as:
 
         $ frankAfcProxy start --appid=<bundle identifer>
 
+  You can check bundle identifiers in the following ways.
+
+        $ frankAfcProxy list
+
 5. Run frank console with --server option.
 
         $ frank console --server=http://localhost:4000/
